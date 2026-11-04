@@ -73,6 +73,12 @@ to a remote environment. Browser access requires HTTPS or localhost.
 
 The controller diagram and button names follow the Xbox, PlayStation, Nintendo,
 or Steam controller reported by your browser. Other devices use a generic layout.
+The diagram highlights pressed buttons, follows stick movement, and shows trigger
+pressure. Choose **Test inputs** to check these without triggering controller
+shortcuts. **Done testing** or Escape ends the test. Testing also stops when you
+switch controllers, leave Settings, or unfocus the window. Release held controls
+before using shortcuts again. You can test with controller navigation turned off.
+
 The defaults below use Xbox button names:
 
 - D-pad or left stick moves focus. Up/down moves between items in open lists and

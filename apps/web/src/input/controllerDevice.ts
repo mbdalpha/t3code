@@ -51,7 +51,7 @@ export function selectController<T extends Pick<ControllerDevice, "index" | "id"
   );
 }
 
-function controllerButtonName(index: number, family: ControllerFamily): string {
+export function controllerButtonName(index: number, family: ControllerFamily): string {
   const names: Record<ControllerFamily, readonly string[]> = {
     xbox: [
       "A",

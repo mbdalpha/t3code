@@ -161,10 +161,13 @@ export function ControllerSettings() {
           <p className="text-xs">Select a Gamepad layout in Steam Input to use this controller.</p>
         ) : null}
         <ControllerDiagram
+          key={`${activeKey}:${editable}`}
           family={device.family}
           name={device.name}
           bindings={bindings}
           connected={Boolean(pad)}
+          selectedKey={editable ? activeKey : ""}
+          recording={Boolean(recording)}
         />
         <div className="space-y-4">
           <div className="flex flex-wrap items-start justify-between gap-3">
