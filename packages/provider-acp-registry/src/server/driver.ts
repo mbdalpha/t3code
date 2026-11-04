@@ -211,7 +211,6 @@ function baseSnapshot(
     ...(input.settings.workspaceLocation === "remote"
       ? {
           workspaceLocation: "remote" as const,
-          badgeLabel: "Remote",
           supportsConversationRollback: false,
           showInteractionModeToggle: false,
           supportedRuntimeModes: ["approval-required" as const],

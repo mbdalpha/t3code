@@ -36,17 +36,17 @@ import {
 import { materializeReplayTranscriptRuntimeInstructions } from "./ReplayRuntimeInstructions.ts";
 
 describe("ACP registry replay fixtures", () => {
-  it.effect("completes a remote ACP turn without checkpointing the local checkout", () =>
+  it.effect("completes a Hoplite turn without checkpointing the local checkout", () =>
     Effect.gen(function* () {
       const name = "acp_remote_workspace";
       const recorded = yield* readReplayFixtureTranscript(
-        new URL("./fixtures/simple/registry_transcript.ndjson", import.meta.url),
+        new URL("./fixtures/hoplite/simple.ndjson", import.meta.url),
       );
       const materialized = yield* materializeFixtureInput({
         scenario: name,
         fixtureInput: { steps: [{ type: "message", text: SIMPLE_PROMPT }] },
         driver: ProviderDriverKind.make("acpRegistry"),
-        modelSelection: { instanceId: ProviderInstanceId.make("acpRegistry"), model: "grok-build" },
+        modelSelection: { instanceId: ProviderInstanceId.make("acpRegistry"), model: "gpt-6-luna" },
       });
       const workspace = yield* checkpointWorkspace(name);
       const result = yield* runOrchestratorV2ProviderReplayScenario(

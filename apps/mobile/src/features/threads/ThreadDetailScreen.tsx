@@ -1428,11 +1428,6 @@ function ThreadDetailBody(
                 : "absolute inset-0 bg-screen"
             }
           />
-          {providerSubagentProvider?.workspaceLocation === "remote" ? (
-            <View className="mx-3 my-2">
-              <Notice message="Remote agent workspace. The agent edits a separate checkout. Git, terminal and preview controls use this T3 environment. Files aren't synchronized." />
-            </View>
-          ) : null}
           <RenderErrorBoundary
             key={selectedThreadKey}
             resetKeys={[props.threadCwd]}
@@ -1628,6 +1623,11 @@ function ThreadDetailBody(
                       key={`chatgpt-limit:${props.selectedThread.latestRun?.runId}`}
                       thread={props.selectedThread}
                     />
+                    {providerSubagentProvider?.workspaceLocation === "remote" ? (
+                      <View className="mx-3 my-2">
+                        <Notice message="Remote agent workspace. The agent edits a separate checkout. Git, terminal and preview controls use this T3 environment. Files aren't synchronized." />
+                      </View>
+                    ) : null}
                     <ChildThreadApprovals
                       threadRef={props.selectedThreadDetailRef}
                       maxHeight={pendingUserInputMaxHeight}
