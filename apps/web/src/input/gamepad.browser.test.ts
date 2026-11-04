@@ -1,5 +1,7 @@
 import { expect, it, vi } from "vite-plus/test";
-import { installGamepadInput } from "./gamepad";
+import { installGamepadInput, suspendControllerNavigation } from "./gamepad";
+import { assignControllerBinding, DEFAULT_CONTROLLER_BINDINGS } from "./controllerBindings";
+import { controllerKey } from "./controllerDevice";
 
 function gamepad(pressed: number[] = [], scroll = 0): Gamepad {
   return {
@@ -90,4 +92,39 @@ it("pauses on blur, hiding, and disconnection, and requires neutral controls bef
   expect(callbacks.size).toBe(0);
   window.dispatchEvent(new Event("focus"));
   expect(callbacks.size).toBe(0);
+
+  const second = { ...gamepad(), index: 1, id: "Second controller" };
+  let bindings = DEFAULT_CONTROLLER_BINDINGS;
+  cleanup.defer(
+    installGamepadInput(action, scroll, {
+      selectedKey: controllerKey(second),
+      getBindings: () => bindings,
+    }),
+  );
+  pads = [gamepad(), second];
+  window.dispatchEvent(new Event("gamepadconnected"));
+  step(1000);
+  action.mockClear();
+  pads = [gamepad([0]), second];
+  step(1010);
+  expect(action).not.toHaveBeenCalled();
+  pads = [gamepad(), { ...second, buttons: gamepad([0]).buttons }];
+  step(1020);
+  expect(action).toHaveBeenLastCalledWith("activate");
+  const resume = suspendControllerNavigation();
+  cleanup.defer(resume);
+  pads = [gamepad(), { ...second, buttons: gamepad([1]).buttons }];
+  step(1030);
+  expect(action).toHaveBeenCalledOnce();
+  resume();
+  step(1040);
+  expect(action).toHaveBeenCalledOnce();
+  pads = [gamepad(), second];
+  step(1050);
+  bindings = assignControllerBinding(bindings, "activate", [{ kind: "button", index: 2 }]);
+  step(1060);
+  pads = [gamepad(), { ...second, buttons: gamepad([2]).buttons }];
+  step(1070);
+  expect(action).toHaveBeenCalledTimes(2);
+  expect(action).toHaveBeenLastCalledWith("activate");
 });

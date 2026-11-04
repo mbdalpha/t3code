@@ -71,8 +71,9 @@ Connect a controller, focus the app, then press and release a button to let the
 browser detect it. The setting applies to this client, including when connected
 to a remote environment. Browser access requires HTTPS or localhost.
 
-Xbox/XInput-compatible controllers use the browser's standard gamepad mapping.
-Button names below follow the Xbox layout:
+Button names follow the Xbox, PlayStation, Nintendo, or Steam controller reported
+by your browser. Other devices use generic button names.
+The defaults below use Xbox button names:
 
 - D-pad or left stick moves focus. Up/down moves between items in open lists and
   trees. Left/right leaves those widgets to focus other controls. Horizontal tab
@@ -85,8 +86,16 @@ Button names below follow the Xbox layout:
 Input pauses when the window loses focus or the tab is hidden. Release the
 controls after connecting or switching windows before using them again. Action
 buttons trigger once per press; held navigation directions repeat. If several
-standard controllers are connected, the first controller in the browser's list
-controls the app. Native iOS and Android clients do not use this integration.
+controllers are connected, choose the one to use in the controller menu. Native
+iOS and Android clients do not use this integration.
+
+To reassign an action, click its binding in Controller bindings, press a controller
+button or combination, then release all controls to save. Stick directions can
+also be assigned. Escape cancels recording. Assigning the same binding to another
+action removes it from the previous action. Clear removes a binding, and Reset
+defaults restores all controller bindings. Bindings save on this device for
+each reported controller type. Identical controllers share bindings. A button
+used both alone and in a combination triggers its solo action on release.
 
 ### Steam Input
 
@@ -95,6 +104,10 @@ Input for it, and launch it through Steam. Select a Gamepad layout so Steam
 provides a standard controller mapping. For a Steam Controller, map a trackpad
 to the D-pad for navigation and another to the right joystick for scrolling.
 You can also map a trackpad to mouse movement and clicking.
+
+Steam Input may expose a virtual Xbox controller. In that case T3 Code uses
+Xbox button names because the browser cannot identify the physical controller
+behind it. Devices without a standard mapping need a Gamepad layout in Steam Input.
 
 Give each button one output. Mapping the same press to a keyboard shortcut and
 a gamepad button can trigger an action twice. A keyboard and mouse Steam layout
