@@ -424,6 +424,192 @@ const claudeUnrelatedChildren = [
 ];
 
 describe("AcpRegistryAdapterV2", () => {
+  it.effect.each([1, 2])("reports refused ACP v%i turns as failures", (protocolVersion) =>
+    Effect.gen(function* () {
+      const fileSystem = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const childProcessSpawner = yield* ChildProcessSpawner.ChildProcessSpawner;
+      const replayDir = yield* fileSystem.makeTempDirectoryScoped({ prefix: "t3-acp-refusal-" });
+      const sessionId = "hoplite-thread";
+      const request = (method: string, params: unknown = "<any>") => ({
+        type: "expect_outbound",
+        frame: { kind: "request", method, params },
+      });
+      const answer = (method: string, result: unknown) => ({
+        type: "emit_inbound",
+        frame: { kind: "response", method, result },
+      });
+      const update = (value: unknown) => ({
+        type: "emit_inbound",
+        frame: {
+          kind: "notification",
+          method: "session/update",
+          params: { sessionId, update: value },
+        },
+      });
+      // Hoplite's documented failed-run contract uses refusal on both ACP versions.
+      const failure = {
+        code: "platform_inference_credits_exhausted",
+        category: "credits",
+        title: "Out of credits",
+        message: "Add prepaid credits, then retry the run.",
+        retriable: true,
+        runId: "hoplite-run",
+        actions: [],
+      };
+      const prompt = (stopReason: string, ordinal: number) => [
+        request("session/prompt"),
+        ...(protocolVersion === 2
+          ? [
+              answer("session/prompt", { messageId: `user-${ordinal}` }),
+              update({ sessionUpdate: "state_update", state: "running" }),
+            ]
+          : []),
+        ...(stopReason === "refusal"
+          ? [
+              {
+                type: "emit_inbound",
+                frame: {
+                  kind: "notification",
+                  method: "_hoplite/run_failed",
+                  params: { sessionId, runId: failure.runId, failure },
+                },
+              },
+              update(
+                protocolVersion === 2
+                  ? {
+                      sessionUpdate: "agent_message",
+                      messageId: "failure-notice",
+                      content: [{ type: "text", text: failure.message }],
+                      _meta: { hoplite: { failureNotice: true, runId: failure.runId } },
+                    }
+                  : {
+                      sessionUpdate: "agent_message_chunk",
+                      content: { type: "text", text: failure.message },
+                      _meta: { hoplite: { failureNotice: true, runId: failure.runId } },
+                    },
+              ),
+            ]
+          : []),
+        ...(protocolVersion === 2
+          ? [update({ sessionUpdate: "state_update", state: "idle", stopReason })]
+          : [
+              answer("session/prompt", {
+                stopReason,
+                ...(stopReason === "refusal" ? { _meta: { hoplite: { failure } } } : {}),
+              }),
+            ]),
+      ];
+      const transcript = yield* decodeAcpReplayTranscript(
+        {
+          provider: ACP_REGISTRY_PROVIDER,
+          protocol: "acp.ndjson-jsonrpc",
+          version: "1",
+          scenario: `hoplite-refusal-v${protocolVersion}`,
+          entries: [
+            request("initialize"),
+            answer(
+              "initialize",
+              protocolVersion === 2
+                ? {
+                    protocolVersion,
+                    info: { name: "Hoplite", version: "3.5.1" },
+                    capabilities: { session: {} },
+                    authMethods: [],
+                  }
+                : {
+                    protocolVersion,
+                    agentInfo: { name: "Hoplite", version: "3.5.1" },
+                    agentCapabilities: {},
+                    authMethods: [],
+                  },
+            ),
+            request("session/new"),
+            answer("session/new", { sessionId }),
+            ...prompt("end_turn", 1),
+            ...prompt("cancelled", 2),
+            ...prompt("refusal", 3),
+            ...(protocolVersion === 2
+              ? [request("session/close", { sessionId }), answer("session/close", {})]
+              : []),
+          ] as never,
+        },
+        ACP_REGISTRY_PROVIDER,
+      );
+      const statusPath = path.join(replayDir, "status.json");
+      const instanceId = ProviderInstanceId.make("hoplite-refusal");
+      const adapter = yield* makeAcpRegistryAdapterV2({
+        selfInvocation: yield* resolveSelfInvocation(),
+        instanceId,
+        settings: yield* decodeAcpRegistryAdapterSettings({
+          source: "local",
+          commandPath: "hoplite",
+          workspaceLocation: "remote",
+        }),
+        environment: {},
+        makeRuntime: makeAcpReplayRuntime({
+          transcript,
+          statusPath,
+          childProcessSpawner,
+          fileSystem,
+          scriptPath: yield* path.fromFileUrl(
+            new URL("../../../scripts/acp-replay-agent.ts", import.meta.url),
+          ),
+        }),
+        assertComplete: makeAcpReplayCompletenessAssertion(fileSystem, statusPath, transcript),
+      }).pipe(Effect.provide(layerInjectedRuntimeCatalog));
+      const threadId = ThreadId.make("thread-hoplite-refusal");
+      const modelSelection = { instanceId, model: "default" } as const;
+      const runtimePolicy = ProviderAdapter.ProviderAdapterV2RuntimePolicy.make({
+        runtimeMode: "approval-required",
+        interactionMode: "default",
+        cwd: replayDir,
+      });
+      const runtime = yield* adapter.openSession({
+        threadId,
+        modelSelection,
+        runtimePolicy,
+        providerSessionId: ProviderSessionId.make("session-hoplite-refusal"),
+      });
+      const providerThread = yield* runtime.ensureThread({
+        threadId,
+        modelSelection,
+        runtimePolicy,
+      });
+      assert.equal(providerThread.nativeThreadRef?.nativeId, sessionId);
+      const now = yield* DateTime.now;
+      for (const [index, status] of ["completed", "cancelled", "failed"].entries()) {
+        yield* runtime.startTurn(
+          makeTurnInput({
+            threadId,
+            providerThread,
+            instanceId,
+            runtimePolicy,
+            now,
+            ordinal: index + 1,
+          }),
+        );
+        const events = yield* runtime.events.pipe(
+          Stream.takeUntil((event) => event.type === "turn.terminal"),
+          Stream.runCollect,
+        );
+        const terminal = events.find((event) => event.type === "turn.terminal");
+        assert.equal(terminal?.status, status);
+        if (status === "failed") {
+          assert.equal(terminal?.failure?.code, "refusal");
+          assert.isTrue(
+            events.some(
+              (event) =>
+                event.type === "message.updated" && event.message.text.includes(failure.message),
+            ),
+          );
+        } else {
+          assert.isNull(terminal?.failure);
+        }
+      }
+    }).pipe(Effect.provide(layerTest), Effect.scoped),
+  );
+
   it("preserves and sanitizes structured ACP errors without exposing arbitrary defects", () => {
     const limit = new EffectAcpErrors.AcpRequestError({
       code: -31001,

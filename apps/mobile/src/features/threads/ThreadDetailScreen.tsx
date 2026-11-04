@@ -175,6 +175,7 @@ import type {
 import { PendingApprovalCard } from "./PendingApprovalCard";
 import { ComposerErrorNotice } from "./ComposerErrorNotice";
 import { ManagedRuntimeModeNotice } from "./ManagedRuntimeModeNotice";
+import { Notice } from "../../components/ui/Notice";
 import { ComposerFeedback } from "./ComposerFeedback";
 import { ComposerUsageLimits } from "./ComposerUsageLimits";
 import { PendingUserInputCard } from "./PendingUserInputCard";
@@ -1427,6 +1428,11 @@ function ThreadDetailBody(
                 : "absolute inset-0 bg-screen"
             }
           />
+          {providerSubagentProvider?.workspaceLocation === "remote" ? (
+            <View className="mx-3 my-2">
+              <Notice message="Remote agent workspace. The agent edits a separate checkout. Git, terminal and preview controls use this T3 environment. Files aren't synchronized." />
+            </View>
+          ) : null}
           <RenderErrorBoundary
             key={selectedThreadKey}
             resetKeys={[props.threadCwd]}

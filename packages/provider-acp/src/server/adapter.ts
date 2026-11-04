@@ -8234,7 +8234,17 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
                       yield* Ref.set(runtimeRestartRequired, true);
                     }
                     const failure =
-                      hiddenFailure ?? (idleError ? idleErrorFailure(result.error) : undefined);
+                      hiddenFailure ??
+                      (idleError
+                        ? idleErrorFailure(result.error)
+                        : result.stopReason === "refusal" && !context.interrupted
+                          ? makeProviderFailure({
+                              class: "provider_error",
+                              code: "refusal",
+                              message:
+                                "The agent declined to continue this turn. See the conversation for details.",
+                            })
+                          : undefined);
                     const status =
                       failure !== undefined
                         ? "failed"
