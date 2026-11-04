@@ -62,7 +62,7 @@ import {
 } from "./ui/sidebar";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
 import { appAtomRegistry } from "../rpc/atomRegistry";
-import { registerCommands, registerMenuAction } from "../shortcuts/dispatcher";
+import { type CommandEvent, registerCommands, registerMenuAction } from "../shortcuts/dispatcher";
 import { resolveThreadRouteRef } from "../threadRoutes";
 
 const MACOS_TRAFFIC_LIGHTS_LEFT_INSET = "var(--desktop-window-controls-inset, 90px)";
@@ -129,7 +129,7 @@ function readUsagePageOpen(router: AnyRouter) {
   return router.state.location.pathname === "/usage";
 }
 
-function isKeybindingCaptureTarget(event: KeyboardEvent) {
+function isKeybindingCaptureTarget(event: CommandEvent) {
   return event.target instanceof HTMLElement && event.target.closest("[data-keybinding-capture]");
 }
 
@@ -173,7 +173,7 @@ export function registerNavigationHistoryCommands(router: AnyRouter): () => void
 
 // Capture phase, so F6 also leaves widgets that swallow keys, such as the terminal.
 function registerWorkspaceFocusCommands(router: AnyRouter): () => void {
-  const move = (direction: 1 | -1) => (event: KeyboardEvent) => {
+  const move = (direction: 1 | -1) => (event: CommandEvent) => {
     if (event.isComposing) return false;
     // Inside a dialog the move is refused, but the key is still consumed.
     event.preventDefault();

@@ -763,6 +763,12 @@ export const SETTINGS_SEARCH_ITEMS = [
     to: "/settings/keybindings",
     searchTerms: ["keyboard shortcuts hotkeys commands bindings json"],
   },
+  {
+    id: "controller-input",
+    title: "Controller input",
+    to: "/settings/keybindings",
+    searchTerms: ["gamepad xbox xinput steam input controller joystick d-pad"],
+  },
   ...KEYBINDING_SEARCH_ITEMS,
   {
     id: "snap-shot-enabled",

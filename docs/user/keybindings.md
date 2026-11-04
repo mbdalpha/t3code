@@ -64,6 +64,46 @@ match in a folded file opens it. Escape closes the search. This shortcut is not
 configurable. A very large uncommitted diff loads its files as you scroll, and
 find only searches the files loaded so far.
 
+## Controllers
+
+Turn on **Settings → Keybindings → Controller input** in the web or desktop client.
+Connect a controller, focus the app, then press and release a button to let the
+browser detect it. The setting applies to this client, including when connected
+to a remote environment. Browser access requires HTTPS or localhost.
+
+Xbox/XInput-compatible controllers use the browser's standard gamepad mapping.
+Button names below follow the Xbox layout:
+
+- D-pad or left stick moves focus. Up/down moves between items in open lists and
+  trees. Left/right leaves those widgets to focus other controls. Horizontal tab
+  lists use left/right to choose a tab and up/down to leave the list.
+- A activates the focused control. B closes a menu or dialog, or goes back.
+- LB and RB move to the previous and next thread.
+- Right stick scrolls the conversation, or the open dialog.
+- Menu opens the command palette.
+
+Input pauses when the window loses focus or the tab is hidden. Release the
+controls after connecting or switching windows before using them again. Action
+buttons trigger once per press; held navigation directions repeat. If several
+standard controllers are connected, the first controller in the browser's list
+controls the app. Native iOS and Android clients do not use this integration.
+
+### Steam Input
+
+Add the T3 Code desktop executable to Steam as a non-Steam game, enable Steam
+Input for it, and launch it through Steam. Select a Gamepad layout so Steam
+provides a standard controller mapping. For a Steam Controller, map a trackpad
+to the D-pad for navigation and another to the right joystick for scrolling.
+You can also map a trackpad to mouse movement and clicking.
+
+Give each button one output. Mapping the same press to a keyboard shortcut and
+a gamepad button can trigger an action twice. A keyboard and mouse Steam layout
+can instead use T3 Code's existing shortcuts with **Controller input** turned off.
+
+This integration reads standard gamepad input and Steam's emulated inputs. It
+does not expose native Steam Input actions, gyro data, or Steam button glyphs.
+Controllers reported with an unsupported mapping need a standard gamepad profile.
+
 ## iPad
 
 With a hardware keyboard, use `Cmd+1` through `Cmd+9` to open the first nine

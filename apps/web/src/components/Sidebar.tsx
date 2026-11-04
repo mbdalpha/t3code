@@ -1,5 +1,7 @@
 import { liveShellEnvironmentIdsAtom } from "../state/shell";
 import { attachSidebarTree } from "../lib/sidebarTree";
+import { type CommandEvent, registerCommands } from "../shortcuts/dispatcher";
+import { isAppModalPage } from "./sidebar/mainAppLocation";
 import { type EnvironmentId, type ScopedProjectRef } from "@t3tools/contracts";
 import type { EnvironmentServerConfig } from "@t3tools/client-runtime/connection";
 import { ThreadContextDragGhost } from "./chat/ThreadContextDragGhost";
@@ -2886,6 +2888,39 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
   );
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- subscribes to window keydown for thread navigation shortcuts using the current thread list
   useEffect(() => {
+    const navigateToThreadKey = (targetThreadKey: string | null, event: CommandEvent) => {
+      if (!targetThreadKey) return false;
+      const targetThread = threadByKey.get(targetThreadKey);
+      if (!targetThread) return false;
+      event.preventDefault();
+      event.stopPropagation();
+      navigateToThread(scopeThreadRef(targetThread.environmentId, targetThread.id));
+      return true;
+    };
+    const traverse = (direction: "previous" | "next", event: CommandEvent) =>
+      navigateToThreadKey(
+        resolveAdjacentThreadId({
+          threadIds: orderedThreadKeys,
+          currentThreadId: routeRowThreadKey,
+          direction,
+        }),
+        event,
+      );
+    const disposeCommands = registerCommands(
+      {
+        "thread.previous": (event) => traverse("previous", event),
+        "thread.next": (event) => traverse("next", event),
+      },
+      {
+        when: (event) =>
+          !event.repeat &&
+          !isCommandPaletteOpen() &&
+          !isModelPickerOpen() &&
+          !isAppModalPage(router.state.location.pathname),
+        keybindings: () => keybindings,
+        context: () => ({ terminalOpen: routeTerminalOpen }),
+      },
+    );
     const onWindowKeyDown = (event: KeyboardEvent) => {
       if (event.defaultPrevented || event.repeat || isCommandPaletteOpen() || isModelPickerOpen()) {
         return;
@@ -2900,32 +2935,20 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
           isDesktop: isElectron,
         },
       });
-      const navigateToThreadKey = (targetThreadKey: string | null) => {
-        if (!targetThreadKey) return false;
-        const targetThread = threadByKey.get(targetThreadKey);
-        if (!targetThread) return false;
-        event.preventDefault();
-        event.stopPropagation();
-        navigateToThread(scopeThreadRef(targetThread.environmentId, targetThread.id));
-        return true;
-      };
       const traversalDirection = threadTraversalDirectionFromCommand(command);
       if (traversalDirection !== null) {
-        navigateToThreadKey(
-          resolveAdjacentThreadId({
-            threadIds: orderedThreadKeys,
-            currentThreadId: routeRowThreadKey,
-            direction: traversalDirection,
-          }),
-        );
+        traverse(traversalDirection, event);
         return;
       }
       const jumpIndex = threadJumpIndexFromCommand(command ?? "");
       if (jumpIndex === null) return;
-      navigateToThreadKey(orderedThreadKeys[jumpIndex] ?? null);
+      navigateToThreadKey(orderedThreadKeys[jumpIndex] ?? null, event);
     };
     window.addEventListener("keydown", onWindowKeyDown);
-    return () => window.removeEventListener("keydown", onWindowKeyDown);
+    return () => {
+      disposeCommands();
+      window.removeEventListener("keydown", onWindowKeyDown);
+    };
   }, [
     keybindings,
     navigateToThread,
@@ -2933,6 +2956,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     routeRowThreadKey,
     routeTerminalOpen,
     threadByKey,
+    router,
   ]);
 
   const shouldShowJumpHintsNow = shouldShowThreadJumpHintsForModifiers(

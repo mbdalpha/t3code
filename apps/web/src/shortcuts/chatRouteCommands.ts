@@ -24,7 +24,7 @@ import { selectThreadTerminalUiState, useTerminalUiStateStore } from "../termina
 import { useThreadSelectionStore } from "../threadSelectionStore";
 import { resolveThreadRouteTarget } from "../threadRoutes";
 import { useUiStateStore } from "../uiStateStore";
-import { type CommandHandler, registerCommands } from "./dispatcher";
+import { type CommandEvent, type CommandHandler, registerCommands } from "./dispatcher";
 
 const CHAT_ROUTE_ID = "/_chat";
 
@@ -89,7 +89,7 @@ export function installChatRouteCommands(router: AnyRouter): () => void {
   const canOperatePreview = (environmentId: EnvironmentId) =>
     readEnvironmentScope(environmentId, AuthPreviewOperateScope);
 
-  const claim = (event: KeyboardEvent) => {
+  const claim = (event: CommandEvent) => {
     event.preventDefault();
     event.stopPropagation();
   };
