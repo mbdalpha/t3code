@@ -35,7 +35,10 @@ const REPLAY_SETTINGS = Schema.decodeSync(AcpRegistrySettings)({
 
 function layerAcpRegistryProviderAdapterRegistryReplay(
   transcript: AcpReplayTranscript,
-  options: { readonly replayGate?: ProviderReplayGate } = {},
+  options: {
+    readonly replayGate?: ProviderReplayGate;
+    readonly settings?: AcpRegistrySettings;
+  } = {},
 ) {
   const layerHost = TestProviderHost.layer().pipe(
     Layer.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
@@ -58,7 +61,7 @@ function layerAcpRegistryProviderAdapterRegistryReplay(
         .pipe(Effect.orDie);
       const adapter = yield* makeAcpRegistryAdapterV2({
         instanceId: ACP_REGISTRY_DEFAULT_INSTANCE_ID,
-        settings: REPLAY_SETTINGS,
+        settings: options.settings ?? REPLAY_SETTINGS,
         environment: {},
         selfInvocation: yield* resolveSelfInvocation(),
         makeRuntime: makeAcpReplayRuntime({
@@ -105,3 +108,13 @@ export const AcpRegistryOrchestratorReplayHarness: OrchestratorV2ProviderReplayH
     }),
   makeProviderAdapterRegistryLayer: layerAcpRegistryProviderAdapterRegistryReplay,
 };
+
+export const AcpRegistryRemoteOrchestratorReplayHarness: typeof AcpRegistryOrchestratorReplayHarness =
+  {
+    ...AcpRegistryOrchestratorReplayHarness,
+    makeProviderAdapterRegistryLayer: (transcript, options) =>
+      layerAcpRegistryProviderAdapterRegistryReplay(transcript, {
+        ...options,
+        settings: { ...REPLAY_SETTINGS, workspaceLocation: "remote" },
+      }),
+  };

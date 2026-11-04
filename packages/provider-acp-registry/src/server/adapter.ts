@@ -186,6 +186,7 @@ export const makeAcpRegistryAdapterV2 = Effect.fn("makeAcpRegistryAdapterV2")(fu
   const registryAgentId = options.settings.source === "local" ? "" : options.settings.agentId;
   const startupKey =
     options.settings.source === "local" ? `local:${options.instanceId}` : registryAgentId;
+  const remoteWorkspace = options.settings.workspaceLocation === "remote";
   const isDevin = registryAgentId === "devin";
   // Local installs launch the `copilot` binary directly with no registry id.
   const isCopilot =
@@ -212,12 +213,25 @@ export const makeAcpRegistryAdapterV2 = Effect.fn("makeAcpRegistryAdapterV2")(fu
   const flavor: AcpAdapterV2Flavor = {
     driver: ACP_REGISTRY_PROVIDER,
     // Cancelling a Copilot prompt also kills the background agents it started.
-    capabilities: isCopilot
-      ? {
-          ...AcpProviderCapabilitiesV2,
-          turns: { ...AcpProviderCapabilitiesV2.turns, supportsSteeringByInterruptRestart: false },
-        }
-      : AcpProviderCapabilitiesV2,
+    capabilities: {
+      ...AcpProviderCapabilitiesV2,
+      threads: {
+        ...AcpProviderCapabilitiesV2.threads,
+        canRollbackThread: !remoteWorkspace,
+      },
+      turns: {
+        ...AcpProviderCapabilitiesV2.turns,
+        supportsSteeringByInterruptRestart: !isCopilot && !remoteWorkspace,
+      },
+      checkpointing: {
+        ...AcpProviderCapabilitiesV2.checkpointing,
+        appCanCheckpointFilesystem: !remoteWorkspace,
+        supportsNestedCheckpointScopes: !remoteWorkspace,
+        providerCanRollbackConversation: !remoteWorkspace,
+        providerRollbackReturnsSnapshot: !remoteWorkspace,
+      },
+    },
+    workspaceLocation: options.settings.workspaceLocation,
     customModels: readCustomModelEntries(options.settings.customModels).map((entry) => entry.slug),
     promptFailure: (cause) => acpRegistryPromptFailure(registryAgentId, cause),
     ...(registryAgentId === "factory-droid"

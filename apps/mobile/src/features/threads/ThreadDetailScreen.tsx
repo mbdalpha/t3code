@@ -175,6 +175,7 @@ import type {
 import { PendingApprovalCard } from "./PendingApprovalCard";
 import { ComposerErrorNotice } from "./ComposerErrorNotice";
 import { ManagedRuntimeModeNotice } from "./ManagedRuntimeModeNotice";
+import { Notice } from "../../components/ui/Notice";
 import { ComposerFeedback } from "./ComposerFeedback";
 import { ComposerUsageLimits } from "./ComposerUsageLimits";
 import { PendingUserInputCard } from "./PendingUserInputCard";
@@ -1622,6 +1623,11 @@ function ThreadDetailBody(
                       key={`chatgpt-limit:${props.selectedThread.latestRun?.runId}`}
                       thread={props.selectedThread}
                     />
+                    {providerSubagentProvider?.workspaceLocation === "remote" ? (
+                      <View className="mx-3 my-2">
+                        <Notice message="Remote agent workspace. The agent edits a separate checkout. Git, terminal and preview controls use this T3 environment. Files aren't synchronized." />
+                      </View>
+                    ) : null}
                     <ChildThreadApprovals
                       threadRef={props.selectedThreadDetailRef}
                       maxHeight={pendingUserInputMaxHeight}

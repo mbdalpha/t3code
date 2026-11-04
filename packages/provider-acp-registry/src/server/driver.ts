@@ -208,6 +208,14 @@ function baseSnapshot(
     ...(iconUrl ? { iconUrl } : {}),
     continuation: { groupKey: input.continuationKey },
     supportsTextGeneration: false,
+    ...(input.settings.workspaceLocation === "remote"
+      ? {
+          workspaceLocation: "remote" as const,
+          supportsConversationRollback: false,
+          showInteractionModeToggle: false,
+          supportedRuntimeModes: ["approval-required" as const],
+        }
+      : {}),
     enabled: input.settings.enabled,
     installed: input.installed,
     version: input.version,

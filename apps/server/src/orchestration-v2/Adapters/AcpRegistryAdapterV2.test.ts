@@ -3,6 +3,9 @@ import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, describe, it } from "@effect/vitest";
 import {
   EnvironmentId,
+  ChatAttachmentId,
+  ChatFileAttachment,
+  ChatImageAttachment,
   MessageId,
   NodeId,
   ProjectId,
@@ -32,6 +35,7 @@ import * as EffectAcpErrors from "effect-acp/errors";
 
 import { makeProviderFailure } from "@t3tools/provider-core/server/failure";
 import * as McpProviderSessions from "@t3tools/provider-core/server/McpProviderSessions";
+import * as ProviderHost from "@t3tools/provider-core/server/ProviderHost";
 import * as TestProviderHost from "@t3tools/provider-testing/TestProviderHost";
 import {
   makeProviderReplayGate,
@@ -420,6 +424,192 @@ const claudeUnrelatedChildren = [
 ];
 
 describe("AcpRegistryAdapterV2", () => {
+  it.effect.each([1, 2])("reports refused ACP v%i turns as failures", (protocolVersion) =>
+    Effect.gen(function* () {
+      const fileSystem = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const childProcessSpawner = yield* ChildProcessSpawner.ChildProcessSpawner;
+      const replayDir = yield* fileSystem.makeTempDirectoryScoped({ prefix: "t3-acp-refusal-" });
+      const sessionId = "hoplite-thread";
+      const request = (method: string, params: unknown = "<any>") => ({
+        type: "expect_outbound",
+        frame: { kind: "request", method, params },
+      });
+      const answer = (method: string, result: unknown) => ({
+        type: "emit_inbound",
+        frame: { kind: "response", method, result },
+      });
+      const update = (value: unknown) => ({
+        type: "emit_inbound",
+        frame: {
+          kind: "notification",
+          method: "session/update",
+          params: { sessionId, update: value },
+        },
+      });
+      // Hoplite's documented failed-run contract uses refusal on both ACP versions.
+      const failure = {
+        code: "platform_inference_credits_exhausted",
+        category: "credits",
+        title: "Out of credits",
+        message: "Add prepaid credits, then retry the run.",
+        retriable: true,
+        runId: "hoplite-run",
+        actions: [],
+      };
+      const prompt = (stopReason: string, ordinal: number) => [
+        request("session/prompt"),
+        ...(protocolVersion === 2
+          ? [
+              answer("session/prompt", { messageId: `user-${ordinal}` }),
+              update({ sessionUpdate: "state_update", state: "running" }),
+            ]
+          : []),
+        ...(stopReason === "refusal"
+          ? [
+              {
+                type: "emit_inbound",
+                frame: {
+                  kind: "notification",
+                  method: "_hoplite/run_failed",
+                  params: { sessionId, runId: failure.runId, failure },
+                },
+              },
+              update(
+                protocolVersion === 2
+                  ? {
+                      sessionUpdate: "agent_message",
+                      messageId: "failure-notice",
+                      content: [{ type: "text", text: failure.message }],
+                      _meta: { hoplite: { failureNotice: true, runId: failure.runId } },
+                    }
+                  : {
+                      sessionUpdate: "agent_message_chunk",
+                      content: { type: "text", text: failure.message },
+                      _meta: { hoplite: { failureNotice: true, runId: failure.runId } },
+                    },
+              ),
+            ]
+          : []),
+        ...(protocolVersion === 2
+          ? [update({ sessionUpdate: "state_update", state: "idle", stopReason })]
+          : [
+              answer("session/prompt", {
+                stopReason,
+                ...(stopReason === "refusal" ? { _meta: { hoplite: { failure } } } : {}),
+              }),
+            ]),
+      ];
+      const transcript = yield* decodeAcpReplayTranscript(
+        {
+          provider: ACP_REGISTRY_PROVIDER,
+          protocol: "acp.ndjson-jsonrpc",
+          version: "1",
+          scenario: `hoplite-refusal-v${protocolVersion}`,
+          entries: [
+            request("initialize"),
+            answer(
+              "initialize",
+              protocolVersion === 2
+                ? {
+                    protocolVersion,
+                    info: { name: "Hoplite", version: "3.5.1" },
+                    capabilities: { session: {} },
+                    authMethods: [],
+                  }
+                : {
+                    protocolVersion,
+                    agentInfo: { name: "Hoplite", version: "3.5.1" },
+                    agentCapabilities: {},
+                    authMethods: [],
+                  },
+            ),
+            request("session/new"),
+            answer("session/new", { sessionId }),
+            ...prompt("end_turn", 1),
+            ...prompt("cancelled", 2),
+            ...prompt("refusal", 3),
+            ...(protocolVersion === 2
+              ? [request("session/close", { sessionId }), answer("session/close", {})]
+              : []),
+          ] as never,
+        },
+        ACP_REGISTRY_PROVIDER,
+      );
+      const statusPath = path.join(replayDir, "status.json");
+      const instanceId = ProviderInstanceId.make("hoplite-refusal");
+      const adapter = yield* makeAcpRegistryAdapterV2({
+        selfInvocation: yield* resolveSelfInvocation(),
+        instanceId,
+        settings: yield* decodeAcpRegistryAdapterSettings({
+          source: "local",
+          commandPath: "hoplite",
+          workspaceLocation: "remote",
+        }),
+        environment: {},
+        makeRuntime: makeAcpReplayRuntime({
+          transcript,
+          statusPath,
+          childProcessSpawner,
+          fileSystem,
+          scriptPath: yield* path.fromFileUrl(
+            new URL("../../../scripts/acp-replay-agent.ts", import.meta.url),
+          ),
+        }),
+        assertComplete: makeAcpReplayCompletenessAssertion(fileSystem, statusPath, transcript),
+      }).pipe(Effect.provide(layerInjectedRuntimeCatalog));
+      const threadId = ThreadId.make("thread-hoplite-refusal");
+      const modelSelection = { instanceId, model: "default" } as const;
+      const runtimePolicy = ProviderAdapter.ProviderAdapterV2RuntimePolicy.make({
+        runtimeMode: "approval-required",
+        interactionMode: "default",
+        cwd: replayDir,
+      });
+      const runtime = yield* adapter.openSession({
+        threadId,
+        modelSelection,
+        runtimePolicy,
+        providerSessionId: ProviderSessionId.make("session-hoplite-refusal"),
+      });
+      const providerThread = yield* runtime.ensureThread({
+        threadId,
+        modelSelection,
+        runtimePolicy,
+      });
+      assert.equal(providerThread.nativeThreadRef?.nativeId, sessionId);
+      const now = yield* DateTime.now;
+      for (const [index, status] of ["completed", "cancelled", "failed"].entries()) {
+        yield* runtime.startTurn(
+          makeTurnInput({
+            threadId,
+            providerThread,
+            instanceId,
+            runtimePolicy,
+            now,
+            ordinal: index + 1,
+          }),
+        );
+        const events = yield* runtime.events.pipe(
+          Stream.takeUntil((event) => event.type === "turn.terminal"),
+          Stream.runCollect,
+        );
+        const terminal = events.find((event) => event.type === "turn.terminal");
+        assert.equal(terminal?.status, status);
+        if (status === "failed") {
+          assert.equal(terminal?.failure?.code, "refusal");
+          assert.isTrue(
+            events.some(
+              (event) =>
+                event.type === "message.updated" && event.message.text.includes(failure.message),
+            ),
+          );
+        } else {
+          assert.isNull(terminal?.failure);
+        }
+      }
+    }).pipe(Effect.provide(layerTest), Effect.scoped),
+  );
+
   it("preserves and sanitizes structured ACP errors without exposing arbitrary defects", () => {
     const limit = new EffectAcpErrors.AcpRequestError({
       code: -31001,
@@ -1118,7 +1308,7 @@ describe("AcpRegistryAdapterV2", () => {
     }).pipe(Effect.provide(layerTest), Effect.scoped),
   );
 
-  it.effect("gives Copilot T3's MCP server over HTTP when it advertises HTTP", () =>
+  it.effect("connects local ACP tools while isolating remote workspaces", () =>
     Effect.gen(function* () {
       const selfInvocation = yield* resolveSelfInvocation();
       const mockAgentPath = yield* (yield* Path.Path).fromFileUrl(
@@ -1185,6 +1375,93 @@ describe("AcpRegistryAdapterV2", () => {
           modelSelection,
           runtimePolicy,
         });
+        if (config.workspaceLocation === "remote") {
+          assert.isFalse(
+            runtime.providerSession.capabilities.checkpointing.appCanCheckpointFilesystem,
+          );
+          assert.isFalse(runtime.providerSession.capabilities.threads.canRollbackThread);
+          assert.isFalse(runtime.providerSession.capabilities.tools.supportsMcpTools);
+          assert.isFalse(
+            runtime.providerSession.capabilities.turns.supportsSteeringByInterruptRestart,
+          );
+          const turnInput = makeTurnInput({
+            threadId,
+            providerThread,
+            instanceId,
+            runtimePolicy,
+            now: yield* DateTime.now,
+            ordinal: 1,
+            modelSelection,
+          });
+          const image = ChatImageAttachment.make({
+            type: "image",
+            id: ChatAttachmentId.make("remote-image-12345678-1234-1234-1234-123456789abc"),
+            name: "screenshot.png",
+            mimeType: "image/png",
+            sizeBytes: 4,
+          });
+          const host = yield* ProviderHost.ProviderHost;
+          const fileSystem = yield* FileSystem.FileSystem;
+          const imagePath = host.resolveAttachmentPath(image)!;
+          yield* fileSystem.writeFile(imagePath, new Uint8Array([137, 80, 78, 71]));
+          yield* runtime.startTurn({
+            ...turnInput,
+            message: { ...turnInput.message, attachments: [image] },
+          });
+          yield* runtime.events.pipe(
+            Stream.takeUntil((event) => event.type === "turn.terminal"),
+            Stream.runForEach((event) =>
+              Effect.sync(() => {
+                if (event.type === "turn.terminal") assert.equal(event.status, "completed");
+              }),
+            ),
+          );
+          const prompt = requests.find((event) => event.method === "session/prompt");
+          assert.isDefined(prompt);
+          const payload = JSON.stringify(prompt?.payload);
+          assert.include(payload, "test prompt");
+          assert.notInclude(payload, "orchestrator_capabilities");
+          assert.notInclude(payload, "link_pull_request");
+          assert.notInclude(payload, endpoint);
+          assert.notInclude(payload, imagePath);
+          assert.notInclude(payload, "saved at");
+          assert.include(payload, "iVBORw==");
+          const attachmentTurn = makeTurnInput({
+            threadId,
+            providerThread,
+            instanceId,
+            runtimePolicy,
+            now: yield* DateTime.now,
+            ordinal: 2,
+            modelSelection,
+          });
+          const failure = yield* runtime
+            .startTurn({
+              ...attachmentTurn,
+              message: {
+                ...attachmentTurn.message,
+                attachments: [
+                  ChatFileAttachment.make({
+                    type: "file",
+                    id: ChatAttachmentId.make("remote-file-12345678-1234-1234-1234-123456789abc"),
+                    name: "notes.txt",
+                    mimeType: "text/plain",
+                    sizeBytes: 1,
+                  }),
+                ],
+              },
+            })
+            .pipe(Effect.flip);
+          assert.instanceOf(failure, ProviderAdapter.ProviderAdapterTurnStartError);
+          assert.include(
+            String(failure.cause),
+            "Remote ACP agents cannot read local file attachments",
+          );
+          assert.lengthOf(
+            requests.filter((event) => event.method === "session/prompt"),
+            1,
+          );
+        }
         yield* mcpSessions.set({ ...mcpSession, authorizationHeader: "Bearer rotated-token" });
         yield* runtime.resumeThread({
           providerThread: {
@@ -1245,6 +1522,18 @@ describe("AcpRegistryAdapterV2", () => {
         new: stdio("Bearer opened-token"),
         load: stdio("Bearer rotated-token"),
       });
+      assert.deepEqual(
+        yield* sessionMcpServers(
+          {
+            source: "local",
+            commandPath: "hoplite",
+            commandArgs: ["acp"],
+            workspaceLocation: "remote",
+          },
+          { T3_ACP_PROMPT_IMAGES: "1" },
+        ),
+        { new: [], load: [] },
+      );
     }).pipe(Effect.provide(layerTest), Effect.scoped),
   );
 

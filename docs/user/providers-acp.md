@@ -39,10 +39,52 @@ credentials and skills remain managed by the installed agent or its wrapper. Mod
 options come from ACP, including model IDs that contain JSON. T3 Code launches the executable directly
 without expanding shell expressions.
 
+## Hoplite cloud agents
+
+Install the [Hoplite CLI](https://hoplite.sh/docs/cli) on the environment running T3 Code,
+then run `hoplite login` there. The Hoplite ACP CLI requires macOS or Linux on that environment.
+In **Settings → Providers → Add provider → Show more → Local
+ACP command**, use `hoplite` as the executable and add `acp`, `--project`, and your Hoplite
+project ID as separate arguments. Set **Workspace location** to **Remote**, and name the
+instance Hoplite. Use an absolute executable path if `hoplite` is outside the server's PATH.
+
+The local command relays prompts to a persistent Hoplite cloud thread. Model and reasoning
+choices come from Hoplite; follow-up prompts and resumed sessions use the same cloud thread.
+The project must already exist in your Hoplite workspace. Without `--project`, the CLI selects
+the Hoplite project linked to the session's repository.
+
+For an API key instead of browser sign-in, set both instance environment overrides:
+
+```text
+HOPLITE_ACP_URL=https://api.hoplite.sh/acp?projectId=<project-id>
+HOPLITE_ACP_API_KEY=<your-api-key>
+```
+
+The ACP relay uses these together; `HOPLITE_API_KEY` alone does not sign it in. The key needs
+project read and thread create, read, update and stop access. The project's repository must be
+available through that Hoplite workspace's GitHub connection before the agent can edit it or
+create a pull request.
+
+Hoplite edits its cloud checkout. Local files, uncommitted changes, and T3 worktrees are not
+uploaded or synchronized. File attachments are unavailable through this relay; paste their text
+into the prompt instead. T3 does not capture local checkpoints or offer rollback for remote
+providers. Its terminal and Git panel still operate on the T3 environment's checkout. Review
+cloud changes and checkpoints in Hoplite, or have the agent create a branch and pull request.
+Remote providers use the agent's permission rules; T3 does not offer its Plan toggle or elevated
+local permission modes for them. Native options advertised by the agent remain available in
+the model picker. A refused turn is marked failed, and Hoplite's explanation stays in the
+conversation.
+
+Hoplite uses the MCP servers configured on its project and drops client-supplied servers.
+Remote mode therefore does not send T3's MCP connection or its host-only tool instructions.
+T3 delegation and scheduling tools are unavailable to the cloud agent through this relay.
+
 ## Where agents run
 
-Registry agents always run on the machine that hosts your T3 Code server. That stays true when you
-connect through `app.t3.codes`, T3 Connect, or a relay.
+ACP commands run on the machine that hosts your T3 Code server. That stays true when you
+connect through `app.t3.codes`, T3 Connect, or a relay. A command can relay work to a cloud agent,
+as Hoplite does. Set **Workspace location** to **Remote** when that agent owns a separate checkout;
+leave it at **This environment** for agents that edit the T3 environment's files.
 
 Agents install under `tools/<agent-id>/<version>/` inside T3 home. T3 Code verifies SHA-256 when the Registry entry
 provides one; entries without a checksum retain the Registry's HTTPS distribution guarantee.

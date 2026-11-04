@@ -516,6 +516,7 @@ const program = Effect.gen(function* () {
         ...(omitInitializeModelState ? {} : { _meta: { modelState: modelState() } }),
         capabilities: {
           session: {
+            ...(process.env.T3_ACP_PROMPT_IMAGES === "1" ? { prompt: { image: {} } } : {}),
             ...(supportsSessionLifecycle ? { fork: {}, additionalDirectories: {} } : {}),
             ...(supportsV2Management ? { delete: {} } : {}),
             ...(supportsAcpMcp || supportsHttpMcp
