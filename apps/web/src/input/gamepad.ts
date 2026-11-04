@@ -1,57 +1,101 @@
-export type ControllerAction =
-  | "up"
-  | "down"
-  | "left"
-  | "right"
-  | "activate"
-  | "back"
-  | "thread.previous"
-  | "thread.next"
-  | "commandPalette.toggle";
+import {
+  DEFAULT_CONTROLLER_BINDINGS,
+  inputKey,
+  isControllerNeutral,
+  readControllerInputs,
+  type ControllerAction,
+  type ControllerBindings,
+  type ControllerPadState,
+} from "./controllerBindings";
+import { controllerKey, selectController } from "./controllerDevice";
 
-const BUTTON_ACTIONS = new Map<number, ControllerAction>([
-  [0, "activate"],
-  [1, "back"],
-  [4, "thread.previous"],
-  [5, "thread.next"],
-  [9, "commandPalette.toggle"],
-  [12, "up"],
-  [13, "down"],
-  [14, "left"],
-  [15, "right"],
-]);
+export type { ControllerAction } from "./controllerBindings";
+
 const DIRECTIONS = new Set<ControllerAction>(["up", "down", "left", "right"]);
-const DEAD_ZONE = 0.2;
+let navigationSuspensions = 0;
 
-type GamepadState = Pick<Gamepad, "buttons" | "axes" | "mapping">;
-
-function deadZone(value: number): number {
-  if (Math.abs(value) <= DEAD_ZONE) return 0;
-  return (Math.sign(value) * (Math.abs(value) - DEAD_ZONE)) / (1 - DEAD_ZONE);
+export function suspendControllerNavigation(): () => void {
+  navigationSuspensions++;
+  let released = false;
+  return () => {
+    if (released) return;
+    released = true;
+    navigationSuspensions--;
+  };
 }
 
-export function createGamepadReader() {
+function deadZone(value: number): number {
+  return Math.max(0, (value - 0.2) / 0.8);
+}
+
+export function createGamepadReader(bindings: ControllerBindings = DEFAULT_CONTROLLER_BINDINGS) {
   let armed = false;
   const held = new Map<ControllerAction, number>();
+  const pending = new Set<number>();
+  const consumed = new Set<number>();
+  const entries = Object.entries(bindings).flatMap(([action, alternatives]) =>
+    alternatives
+      .filter((chord) => chord.length > 0)
+      .map((chord) => ({
+        action: action as keyof ControllerBindings,
+        chord,
+        keys: chord.map(inputKey),
+      })),
+  );
+  const supersets = entries.map((entry) =>
+    entries.flatMap((candidate, index) =>
+      candidate.keys.length > entry.keys.length &&
+      entry.keys.every((key) => candidate.keys.includes(key))
+        ? [index]
+        : [],
+    ),
+  );
   return {
-    read(pad: GamepadState, now: number) {
+    read(pad: ControllerPadState, now: number) {
       const actions: ControllerAction[] = [];
       if (pad.mapping !== "standard") return { actions, scroll: 0 };
       if (!armed) {
-        armed =
-          !pad.buttons.some((button) => button.pressed) &&
-          pad.axes.every((axis) => Math.abs(axis) <= DEAD_ZONE);
+        armed = isControllerNeutral(pad);
         return { actions, scroll: 0 };
       }
       const pressed = new Set<ControllerAction>();
-      for (const [index, action] of BUTTON_ACTIONS) {
-        if (pad.buttons[index]?.pressed) pressed.add(action);
-      }
-      const x = pad.axes[0] ?? 0;
-      const y = pad.axes[1] ?? 0;
-      if (Math.abs(x) > 0.6 || Math.abs(y) > 0.6) {
-        pressed.add(Math.abs(x) > Math.abs(y) ? (x < 0 ? "left" : "right") : y < 0 ? "up" : "down");
-      }
+      const inputs = new Set(readControllerInputs(pad).map(inputKey));
+      const amounts = entries.map(({ action, chord }) =>
+        Math.min(
+          ...chord.map((input) => {
+            if (input.kind === "button") return pad.buttons[input.index]?.pressed ? 1 : 0;
+            const value = (pad.axes[input.index] ?? 0) * input.direction;
+            return action.startsWith("scroll.")
+              ? deadZone(value)
+              : inputs.has(inputKey(input))
+                ? 1
+                : 0;
+          }),
+        ),
+      );
+      let scroll = 0;
+      entries.forEach((entry, index) => {
+        const active = (amounts[index] ?? 0) > 0;
+        const suppressed = supersets[index]?.some((superset) => (amounts[superset] ?? 0) > 0);
+        if (suppressed) {
+          consumed.add(index);
+          pending.delete(index);
+        }
+        if (entry.action === "scroll.up" || entry.action === "scroll.down") {
+          if (active && !suppressed && !consumed.has(index))
+            scroll += (entry.action === "scroll.up" ? -1 : 1) * (amounts[index] ?? 0);
+          if (!active) consumed.delete(index);
+          return;
+        }
+        if (active && !suppressed && !consumed.has(index)) {
+          if ((supersets[index]?.length ?? 0) > 0) pending.add(index);
+          else pressed.add(entry.action);
+        } else if (!active) {
+          // A button that starts a chord waits for release, so its shorter binding cannot also fire.
+          if (pending.delete(index) && !consumed.has(index)) actions.push(entry.action);
+          consumed.delete(index);
+        }
+      });
       for (const action of held.keys()) {
         if (!pressed.has(action)) held.delete(action);
       }
@@ -65,7 +109,7 @@ export function createGamepadReader() {
           held.set(action, now + 100);
         }
       }
-      return { actions, scroll: deadZone(pad.axes[3] ?? 0) };
+      return { actions, scroll: Math.max(-1, Math.min(1, scroll)) };
     },
   };
 }
@@ -84,17 +128,19 @@ export function readGamepads(): Gamepad[] {
 export function installGamepadInput(
   onAction: (action: ControllerAction) => void,
   onScroll: (pixels: number) => void,
+  options: { selectedKey?: string; getBindings?: (pad: Gamepad) => ControllerBindings } = {},
 ): () => void {
   let disposed = false;
   let frame: number | undefined;
   let reader = createGamepadReader();
   let identity: string | undefined;
   let previousTime: number | undefined;
+  let wasSuspended = false;
+  const selectedPad = () => selectController(readGamepads(), options.selectedKey ?? "");
 
   const stop = () => {
     if (frame !== undefined) cancelAnimationFrame(frame);
     frame = undefined;
-    reader = createGamepadReader();
     identity = undefined;
     previousTime = undefined;
   };
@@ -104,22 +150,31 @@ export function installGamepadInput(
       stop();
       return;
     }
-    const pad = readGamepads().find((candidate) => candidate.mapping === "standard");
-    if (!pad) {
+    const pad = selectedPad();
+    if (!pad || pad.mapping !== "standard") {
       stop();
       return;
     }
-    const nextIdentity = `${pad.index}:${pad.id}`;
-    if (identity !== nextIdentity) {
-      reader = createGamepadReader();
-      identity = nextIdentity;
+    const suspended = navigationSuspensions > 0;
+    if (suspended || wasSuspended) {
+      identity = undefined;
       previousTime = undefined;
     }
-    const elapsed = previousTime === undefined ? 0 : Math.min(50, now - previousTime);
-    previousTime = now;
-    const { actions, scroll } = reader.read(pad, now);
-    for (const action of actions) onAction(action);
-    if (scroll !== 0 && elapsed > 0) onScroll(scroll * elapsed * 0.9);
+    wasSuspended = suspended;
+    if (!suspended) {
+      const bindings = options.getBindings?.(pad) ?? DEFAULT_CONTROLLER_BINDINGS;
+      const nextIdentity = `${controllerKey(pad)}:${JSON.stringify(bindings)}`;
+      if (identity !== nextIdentity) {
+        reader = createGamepadReader(bindings);
+        identity = nextIdentity;
+        previousTime = undefined;
+      }
+      const elapsed = previousTime === undefined ? 0 : Math.min(50, now - previousTime);
+      previousTime = now;
+      const { actions, scroll } = reader.read(pad, now);
+      for (const action of actions) onAction(action);
+      if (scroll !== 0 && elapsed > 0) onScroll(scroll * elapsed * 0.9);
+    }
     if (!disposed) frame = requestAnimationFrame(tick);
   };
   const start = () => {
@@ -127,7 +182,7 @@ export function installGamepadInput(
       frame === undefined &&
       document.visibilityState === "visible" &&
       document.hasFocus() &&
-      readGamepads().some((pad) => pad.mapping === "standard")
+      selectedPad()?.mapping === "standard"
     ) {
       frame = requestAnimationFrame(tick);
     }
@@ -141,9 +196,11 @@ export function installGamepadInput(
   window.addEventListener("focus", refresh);
   window.addEventListener("blur", stop);
   document.addEventListener("visibilitychange", refresh);
+  const detectionTimer = window.setInterval(start, 500);
   start();
   return () => {
     disposed = true;
+    clearInterval(detectionTimer);
     stop();
     window.removeEventListener("gamepadconnected", refresh);
     window.removeEventListener("gamepaddisconnected", refresh);
