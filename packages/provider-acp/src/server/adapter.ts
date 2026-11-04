@@ -313,6 +313,7 @@ export interface AcpAdapterV2Flavor {
     EffectAcpSchema.InitializeRequest["clientCapabilities"]
   >["_meta"];
   readonly mcpOverHttp?: boolean;
+  readonly workspaceLocation?: "environment" | "remote";
   readonly normalizeSessionUpdate?: (
     notification: EffectAcpSchema.SessionNotification,
   ) => EffectAcpSchema.SessionNotification;
@@ -767,6 +768,7 @@ function negotiatedCapabilities(
   started: AcpSessionRuntime.AcpSessionRuntimeStartResult,
   modelOptionArrivesLate: boolean,
   forksFromTurn: boolean,
+  injectT3Mcp: boolean,
 ): OrchestrationV2ProviderCapabilities {
   const agent = started.initializeResult.agentCapabilities ?? {};
   const session = agent.sessionCapabilities;
@@ -791,7 +793,7 @@ function negotiatedCapabilities(
     },
     tools: {
       ...base.tools,
-      supportsMcpTools: true,
+      supportsMcpTools: injectT3Mcp,
     },
     checkpointing: {
       ...base.checkpointing,
@@ -1667,7 +1669,7 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
   const mcpSessions = yield* McpProviderSessions.McpProviderSessions;
   const { flavor, selfInvocation: self } = options;
   const readMcpContext = (threadId: ThreadId | null) =>
-    threadId === null
+    threadId === null || flavor.workspaceLocation === "remote"
       ? Effect.succeed(acpMcpContext(undefined, self, flavor.mcpOverHttp))
       : mcpSessions
           .read(threadId)
@@ -7048,6 +7050,7 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
           started,
           flavor.modelOptionArrivesLate === true,
           flavor.forkFromTurn?.supported(started.initializeResult) === true,
+          flavor.workspaceLocation !== "remote",
         );
         const canLoadSession = started.initializeResult.agentCapabilities?.loadSession === true;
         const canResumeSession =
@@ -7699,7 +7702,22 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
           sessionId: string,
         ) {
           const prompt: Array<EffectAcpSchema.ContentBlock> = [];
-          const mcpSession = yield* mcpSessions.read(turnInput.threadId);
+          if (
+            flavor.workspaceLocation === "remote" &&
+            turnInput.message.attachments.some(
+              (attachment) => !isProviderNativeImageAttachment(attachment),
+            )
+          ) {
+            return yield* new ProviderAdapter.ProviderAdapterProtocolError({
+              driver,
+              detail:
+                "Remote ACP agents cannot read local file attachments. Include their text in the prompt instead",
+            });
+          }
+          const mcpSession =
+            flavor.workspaceLocation === "remote"
+              ? undefined
+              : yield* mcpSessions.read(turnInput.threadId);
           const instructionState = {
             interactionMode: turnInput.runtimePolicy.interactionMode,
             hasT3Mcp: mcpSession !== undefined,
@@ -7718,12 +7736,15 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
                       childProcessSpawner,
                     ),
                   );
-          const messageText = yield* providerMessageTextWithAttachmentPaths({
-            text: userText,
-            attachments: turnInput.message.attachments,
-            resolveAttachmentPath: host.resolveAttachmentPath,
-            resolveExtractedTextPath: host.resolveExtractedTextPath,
-          });
+          const messageText =
+            flavor.workspaceLocation === "remote"
+              ? userText
+              : yield* providerMessageTextWithAttachmentPaths({
+                  text: userText,
+                  attachments: turnInput.message.attachments,
+                  resolveAttachmentPath: host.resolveAttachmentPath,
+                  resolveExtractedTextPath: host.resolveExtractedTextPath,
+                });
           const isNativeSlashCommand = userText.trimStart().startsWith("/");
           const text = t3AcpPromptWithInstructions({
             prompt: messageText,
@@ -7808,7 +7829,7 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
               detail: "ACP turn requires non-empty text or attachments",
             });
           }
-          if (!isNativeSlashCommand) {
+          if (!isNativeSlashCommand && flavor.workspaceLocation !== "remote") {
             const sessionSetup = yield* Ref.get(activeSessionSetup);
             prompt.push({
               type: "text",

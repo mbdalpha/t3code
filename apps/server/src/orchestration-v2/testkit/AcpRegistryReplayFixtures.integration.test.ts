@@ -10,11 +10,16 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Stream from "effect/Stream";
+import * as ChildProcess from "effect/process/ChildProcess";
+import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
 import { TestClock } from "effect/testing";
 
 import * as IdAllocator from "@t3tools/provider-core/server/IdAllocator";
 import { checkpointWorkspace } from "@t3tools/provider-testing/replayWorkspace";
-import { AcpRegistryOrchestratorReplayHarness } from "../Adapters/AcpRegistryAdapterV2.testkit.ts";
+import {
+  AcpRegistryOrchestratorReplayHarness,
+  AcpRegistryRemoteOrchestratorReplayHarness,
+} from "../Adapters/AcpRegistryAdapterV2.testkit.ts";
 import * as EffectWorker from "../EffectWorker.ts";
 import * as Orchestrator from "../Orchestrator.ts";
 import { provideDeterministicTestRuntime } from "./DeterministicRuntime.ts";
@@ -24,10 +29,73 @@ import {
   readReplayFixtureTranscript,
   runReplayFixture,
 } from "./ProviderReplayFixtures.ts";
-import { layerProviderReplay } from "./ProviderReplayHarness.ts";
+import {
+  layerProviderReplay,
+  runOrchestratorV2ProviderReplayScenario,
+} from "./ProviderReplayHarness.ts";
 import { materializeReplayTranscriptRuntimeInstructions } from "./ReplayRuntimeInstructions.ts";
 
 describe("ACP registry replay fixtures", () => {
+  it.effect("completes a remote ACP turn without checkpointing the local checkout", () =>
+    Effect.gen(function* () {
+      const name = "acp_remote_workspace";
+      const recorded = yield* readReplayFixtureTranscript(
+        new URL("./fixtures/simple/registry_transcript.ndjson", import.meta.url),
+      );
+      const materialized = yield* materializeFixtureInput({
+        scenario: name,
+        fixtureInput: { steps: [{ type: "message", text: SIMPLE_PROMPT }] },
+        driver: ProviderDriverKind.make("acpRegistry"),
+        modelSelection: { instanceId: ProviderInstanceId.make("acpRegistry"), model: "grok-build" },
+      });
+      const workspace = yield* checkpointWorkspace(name);
+      const result = yield* runOrchestratorV2ProviderReplayScenario(
+        {
+          ...materialized,
+          name,
+          transcript: yield* AcpRegistryRemoteOrchestratorReplayHarness.decodeTranscript(recorded),
+          runtimePolicyOverride: { cwd: workspace },
+        },
+        AcpRegistryRemoteOrchestratorReplayHarness,
+      );
+      const projection = result.projections.get(materialized.projectionThreadIds[0]!);
+      assert.isDefined(projection);
+      assert.deepEqual(
+        projection!.runs.map((run) => run.status),
+        ["completed"],
+      );
+      assert.isTrue(
+        projection!.messages.some(
+          (message) => message.role === "assistant" && message.text === "fixture simple ok",
+        ),
+      );
+      assert.isNotEmpty(projection!.checkpoints);
+      assert.isTrue(projection!.checkpoints.every((checkpoint) => checkpoint.status === "missing"));
+      const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
+      const git = yield* spawner.spawn(
+        ChildProcess.make("git", [
+          "-C",
+          workspace,
+          "for-each-ref",
+          "--format=%(refname)",
+          "refs/t3/orchestration-v2/checkpoints",
+        ]),
+      );
+      const [output, exitCode] = yield* Effect.all([Stream.runCollect(git.stdout), git.exitCode], {
+        concurrency: "unbounded",
+      });
+      assert.equal(exitCode, 0);
+      assert.equal(
+        output.reduce((bytes, chunk) => bytes + chunk.length, 0),
+        0,
+      );
+    }).pipe(
+      Effect.scoped,
+      provideDeterministicTestRuntime,
+      Effect.provide(Layer.merge(IdAllocator.layer, NodeServices.layer)),
+    ),
+  );
+
   it.effect.each([
     { name: "open", firstTurn: false, code: -32602 },
     { name: "switch", firstTurn: true, code: -32602 },

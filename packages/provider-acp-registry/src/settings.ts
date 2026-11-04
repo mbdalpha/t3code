@@ -45,6 +45,21 @@ export const AcpRegistrySettings = makeProviderSettingsSchema(
       Schema.withDecodingDefault(Effect.succeed([])),
       Schema.annotateKey({ providerSettingsForm: { hidden: true } }),
     ),
+    workspaceLocation: Schema.Literals(["environment", "remote"]).pipe(
+      Schema.withDecodingDefault(Effect.succeed("environment")),
+      Schema.annotateKey({
+        title: "Workspace location",
+        description:
+          "Remote agents manage their own files. Local checkpoints, rollback, and T3 tools are unavailable.",
+        providerSettingsForm: {
+          control: "select",
+          options: [
+            { value: "environment", label: "This environment" },
+            { value: "remote", label: "Remote" },
+          ],
+        },
+      }),
+    ),
     authMethodId: TrimmedString.pipe(
       Schema.withDecodingDefault(Effect.succeed("")),
       Schema.annotateKey({
@@ -64,7 +79,7 @@ export const AcpRegistrySettings = makeProviderSettingsSchema(
     ),
   },
   {
-    order: ["source", "agentId", "commandPath", "authMethodId"],
+    order: ["source", "agentId", "commandPath", "workspaceLocation", "authMethodId"],
   },
 );
 export type AcpRegistrySettings = typeof AcpRegistrySettings.Type;

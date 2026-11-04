@@ -43,6 +43,9 @@ session-wide choice, because Grok would remember that command for the whole proj
 
 ACP Registry agents run their own tools in their own mode; T3 Code answers their approval requests
 by the permission mode. See [ACP Registry permissions](./providers-acp.md#permissions-and-terminals).
+ACP providers configured with **Remote** workspace location offer only **Supervised** in T3.
+That mode relays the agent's requests; it cannot restrict execution in the cloud. Configure cloud
+tool permissions in the agent's service, such as Hoplite.
 
 Claude can still ask in **Full access** when its settings disable bypass permissions or require
 approval for an action. Dangerous-removal safety checks in bypass mode reject the command with

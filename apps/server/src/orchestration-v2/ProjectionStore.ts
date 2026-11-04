@@ -259,6 +259,9 @@ export interface ProjectionCheckpointCaptureContext {
   readonly scope: OrchestrationV2CheckpointScope | undefined;
   readonly providerThread: OrchestrationV2ProviderThread | undefined;
   readonly readyCheckpointOrdinals: ReadonlyArray<number>;
+  readonly providerSession?:
+    | OrchestrationV2ThreadProjection["providerSessions"][number]
+    | undefined;
   /** Side chats share their parent's worktree and never snapshot it. */
   readonly sideChat: boolean;
 }
@@ -5286,8 +5289,22 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
             FROM orchestration_v2_projection_checkpoints
             WHERE thread_id = ${threadId} AND scope_id = ${target.scopeId} AND status = 'ready'`,
             ]);
+            const providerThread =
+              providerRows[0] === undefined
+                ? undefined
+                : yield* decodeProviderThreadPayload(providerRows[0].payload_json);
+            const sessionRows =
+              providerThread?.providerSessionId == null
+                ? []
+                : yield* sql<PayloadRow>`
+                  SELECT payload_json FROM orchestration_v2_projection_provider_sessions
+                  WHERE provider_session_id = ${providerThread.providerSessionId}`;
             return {
               run,
+              providerSession:
+                sessionRows[0] === undefined
+                  ? undefined
+                  : yield* decodeProviderSessionPayload(sessionRows[0].payload_json),
               rootNode:
                 nodeRows[0] === undefined
                   ? undefined
@@ -5296,10 +5313,7 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
                 scopeRows[0] === undefined
                   ? undefined
                   : yield* decodeCheckpointScopePayload(scopeRows[0].payload_json),
-              providerThread:
-                providerRows[0] === undefined
-                  ? undefined
-                  : yield* decodeProviderThreadPayload(providerRows[0].payload_json),
+              providerThread,
               readyCheckpointOrdinals: readyRows.map(({ ordinal }) => ordinal),
               sideChat: threadRows[0].side_chat === 1,
             };

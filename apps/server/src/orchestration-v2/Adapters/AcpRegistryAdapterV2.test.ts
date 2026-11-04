@@ -3,6 +3,9 @@ import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, describe, it } from "@effect/vitest";
 import {
   EnvironmentId,
+  ChatAttachmentId,
+  ChatFileAttachment,
+  ChatImageAttachment,
   MessageId,
   NodeId,
   ProjectId,
@@ -32,6 +35,7 @@ import * as EffectAcpErrors from "effect-acp/errors";
 
 import { makeProviderFailure } from "@t3tools/provider-core/server/failure";
 import * as McpProviderSessions from "@t3tools/provider-core/server/McpProviderSessions";
+import * as ProviderHost from "@t3tools/provider-core/server/ProviderHost";
 import * as TestProviderHost from "@t3tools/provider-testing/TestProviderHost";
 import {
   makeProviderReplayGate,
@@ -1118,7 +1122,7 @@ describe("AcpRegistryAdapterV2", () => {
     }).pipe(Effect.provide(layerTest), Effect.scoped),
   );
 
-  it.effect("gives Copilot T3's MCP server over HTTP when it advertises HTTP", () =>
+  it.effect("connects local ACP tools while isolating remote workspaces", () =>
     Effect.gen(function* () {
       const selfInvocation = yield* resolveSelfInvocation();
       const mockAgentPath = yield* (yield* Path.Path).fromFileUrl(
@@ -1185,6 +1189,93 @@ describe("AcpRegistryAdapterV2", () => {
           modelSelection,
           runtimePolicy,
         });
+        if (config.workspaceLocation === "remote") {
+          assert.isFalse(
+            runtime.providerSession.capabilities.checkpointing.appCanCheckpointFilesystem,
+          );
+          assert.isFalse(runtime.providerSession.capabilities.threads.canRollbackThread);
+          assert.isFalse(runtime.providerSession.capabilities.tools.supportsMcpTools);
+          assert.isFalse(
+            runtime.providerSession.capabilities.turns.supportsSteeringByInterruptRestart,
+          );
+          const turnInput = makeTurnInput({
+            threadId,
+            providerThread,
+            instanceId,
+            runtimePolicy,
+            now: yield* DateTime.now,
+            ordinal: 1,
+            modelSelection,
+          });
+          const image = ChatImageAttachment.make({
+            type: "image",
+            id: ChatAttachmentId.make("remote-image-12345678-1234-1234-1234-123456789abc"),
+            name: "screenshot.png",
+            mimeType: "image/png",
+            sizeBytes: 4,
+          });
+          const host = yield* ProviderHost.ProviderHost;
+          const fileSystem = yield* FileSystem.FileSystem;
+          const imagePath = host.resolveAttachmentPath(image)!;
+          yield* fileSystem.writeFile(imagePath, new Uint8Array([137, 80, 78, 71]));
+          yield* runtime.startTurn({
+            ...turnInput,
+            message: { ...turnInput.message, attachments: [image] },
+          });
+          yield* runtime.events.pipe(
+            Stream.takeUntil((event) => event.type === "turn.terminal"),
+            Stream.runForEach((event) =>
+              Effect.sync(() => {
+                if (event.type === "turn.terminal") assert.equal(event.status, "completed");
+              }),
+            ),
+          );
+          const prompt = requests.find((event) => event.method === "session/prompt");
+          assert.isDefined(prompt);
+          const payload = JSON.stringify(prompt?.payload);
+          assert.include(payload, "test prompt");
+          assert.notInclude(payload, "orchestrator_capabilities");
+          assert.notInclude(payload, "link_pull_request");
+          assert.notInclude(payload, endpoint);
+          assert.notInclude(payload, imagePath);
+          assert.notInclude(payload, "saved at");
+          assert.include(payload, "iVBORw==");
+          const attachmentTurn = makeTurnInput({
+            threadId,
+            providerThread,
+            instanceId,
+            runtimePolicy,
+            now: yield* DateTime.now,
+            ordinal: 2,
+            modelSelection,
+          });
+          const failure = yield* runtime
+            .startTurn({
+              ...attachmentTurn,
+              message: {
+                ...attachmentTurn.message,
+                attachments: [
+                  ChatFileAttachment.make({
+                    type: "file",
+                    id: ChatAttachmentId.make("remote-file-12345678-1234-1234-1234-123456789abc"),
+                    name: "notes.txt",
+                    mimeType: "text/plain",
+                    sizeBytes: 1,
+                  }),
+                ],
+              },
+            })
+            .pipe(Effect.flip);
+          assert.instanceOf(failure, ProviderAdapter.ProviderAdapterTurnStartError);
+          assert.include(
+            String(failure.cause),
+            "Remote ACP agents cannot read local file attachments",
+          );
+          assert.lengthOf(
+            requests.filter((event) => event.method === "session/prompt"),
+            1,
+          );
+        }
         yield* mcpSessions.set({ ...mcpSession, authorizationHeader: "Bearer rotated-token" });
         yield* runtime.resumeThread({
           providerThread: {
@@ -1245,6 +1336,18 @@ describe("AcpRegistryAdapterV2", () => {
         new: stdio("Bearer opened-token"),
         load: stdio("Bearer rotated-token"),
       });
+      assert.deepEqual(
+        yield* sessionMcpServers(
+          {
+            source: "local",
+            commandPath: "hoplite",
+            commandArgs: ["acp"],
+            workspaceLocation: "remote",
+          },
+          { T3_ACP_PROMPT_IMAGES: "1" },
+        ),
+        { new: [], load: [] },
+      );
     }).pipe(Effect.provide(layerTest), Effect.scoped),
   );
 

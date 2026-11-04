@@ -291,6 +291,43 @@ describe("AddProviderInstanceDialog environment routing", () => {
     expect(signInStep()).toBeNull();
   });
 
+  it("saves Hoplite as a remote ACP command on the selected environment", async () => {
+    setup();
+    await using _screen = await render(dialog());
+    await click("Show more");
+    await click("Use local command");
+    await type("#add-provider-acpRegistry-manual-commandPath", "hoplite");
+    for (const [index, argument] of ["acp", "--project", "project-cloud"].entries()) {
+      await click("Add argument");
+      await type(`input[aria-label="Argument ${index + 1}"]`, argument);
+    }
+    await act(async () =>
+      document
+        .querySelector<HTMLButtonElement>("#add-provider-acpRegistry-manual-workspaceLocation")!
+        .click(),
+    );
+    await userEvent.click(_screen.getByRole("option", { name: "Remote", exact: true }));
+    await click("Next");
+    await type("#add-provider-label", "Hoplite");
+    await click("Add instance");
+    expect(settingsHooks.mutate).toHaveBeenCalledWith({
+      operation: "create",
+      instanceId: "acpRegistry_hoplite",
+      instance: {
+        driver: "acpRegistry",
+        enabled: true,
+        displayName: "Hoplite",
+        config: {
+          source: "local",
+          commandPath: "hoplite",
+          commandArgs: ["acp", "--project", "project-cloud"],
+          workspaceLocation: "remote",
+        },
+      },
+    });
+    expect(actions.onOpenChange).toHaveBeenCalledWith(false);
+  });
+
   it("rejects a queued save after the provider grant is revoked", async () => {
     setup();
     await using screen = await prepareCodexInstance();
