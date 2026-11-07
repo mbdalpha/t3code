@@ -1,4 +1,5 @@
 import { useEnvironmentScope } from "../../state/session";
+import { ControllerSettings } from "./ControllerSettings";
 import { useEnvironmentsWithScope, readEnvironmentScope } from "../../state/session";
 import {
   ChevronDownIcon,
@@ -1468,6 +1469,7 @@ export function KeybindingsSettingsPanel() {
 
   return (
     <SettingsPageContainer>
+      <ControllerSettings />
       <SettingsSection
         {...searchableSetting("keybindings")}
         headerAction={!isElectron ? <BrowserKeybindingNotice /> : null}

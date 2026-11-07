@@ -8,19 +8,24 @@ import { isModelPickerOpen } from "../modelPickerVisibility";
 import { appAtomRegistry } from "../rpc/atomRegistry";
 import { primaryServerKeybindingsAtom } from "../state/server";
 
-/** Return `false` to let the next scope handle the event. */
-export type CommandHandler = (event: KeyboardEvent) => boolean | void;
+export type CommandEvent = Pick<
+  KeyboardEvent,
+  "target" | "repeat" | "isComposing" | "defaultPrevented" | "preventDefault" | "stopPropagation"
+>;
+
+/** Return `false` to let the next scope handle the command. */
+export type CommandHandler = (event: CommandEvent) => boolean | void;
 
 export type CommandHandlers = Partial<Record<KeybindingCommand, CommandHandler>>;
 
 export interface CommandScopeOptions {
   /** Read at event time; a scope whose guard fails is skipped. */
-  readonly when?: (event: KeyboardEvent) => boolean;
+  readonly when?: (event: CommandEvent) => boolean;
   /** When-clause context the dispatcher cannot know (terminalOpen, previewOpen), read at event time. */
   readonly context?: () => Partial<ShortcutMatchContext>;
   readonly keybindings?: () => ResolvedKeybindingsConfig;
   /** For shortcuts that are not keybinding commands (Escape, "/"); runs before command lookup. */
-  readonly onKeyDown?: CommandHandler;
+  readonly onKeyDown?: (event: KeyboardEvent) => boolean | void;
   /**
    * Run in the capture phase, ahead of focused widgets that consume the key
    * themselves (the terminal encodes Ctrl+Shift+T and stops propagation).
@@ -117,6 +122,30 @@ export function registerCommands(
 ): () => void {
   const scopes = options.observe ? observerScopes : options.capture ? captureScopes : globalScopes;
   return pushScope(scopes, { commands, options });
+}
+
+/** Invoke an action without looking up or synthesizing a keyboard shortcut. */
+export function dispatchCommand(command: KeybindingCommand): boolean {
+  const event = {
+    target: document.activeElement,
+    repeat: false,
+    isComposing: false,
+    defaultPrevented: false,
+    preventDefault() {
+      this.defaultPrevented = true;
+    },
+    stopPropagation() {},
+  };
+  if (isInsideConfirmation(event.target)) return false;
+  for (const scopes of [captureScopes, globalScopes]) {
+    for (let index = scopes.length - 1; index >= 0; index -= 1) {
+      const scope = scopes[index];
+      if (!scope || (scope.options.when && !scope.options.when(event))) continue;
+      const handler = scope.commands[command];
+      if (handler && (handler(event) !== false || event.defaultPrevented)) return true;
+    }
+  }
+  return false;
 }
 
 type MenuActionHandler = () => void;

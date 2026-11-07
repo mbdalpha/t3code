@@ -77,7 +77,7 @@ function isInScrollView(target: HTMLElement) {
  * Brings a restored control into view, innermost scrolling list first.
  * scrollIntoView would also scroll overflow-hidden layout containers out of place.
  */
-function revealInScrollers(target: HTMLElement) {
+export function revealInScrollers(target: HTMLElement) {
   for (const scroller of scrollingAncestors(target)) {
     const box = scroller.getBoundingClientRect();
     const rect = target.getBoundingClientRect();

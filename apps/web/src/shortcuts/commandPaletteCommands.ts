@@ -11,11 +11,16 @@ import { toggleThemeEditorForTheme } from "../components/settings/themeEditorSto
 import { toastManager } from "../components/ui/toast";
 import { getThemeSnapshot, setAppearanceMode } from "../hooks/useTheme";
 import { selectActiveRightPanel, useRightPanelStore } from "../rightPanelStore";
-import { type CommandHandler, type CommandScopeOptions, registerCommands } from "./dispatcher";
+import {
+  type CommandEvent,
+  type CommandHandler,
+  type CommandScopeOptions,
+  registerCommands,
+} from "./dispatcher";
 import { selectThreadTerminalUiState, useTerminalUiStateStore } from "../terminalUiStateStore";
 import { resolveThreadRouteTarget } from "../threadRoutes";
 
-function consume(event: KeyboardEvent): void {
+function consume(event: CommandEvent): void {
   event.preventDefault();
   event.stopPropagation();
 }

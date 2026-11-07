@@ -2,6 +2,11 @@
 @layer theme, base, clerk, components, utilities;
 @import "tailwindcss";
 
+html[data-controller-navigation="true"] :focus {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
 @custom-variant dark (&:is(.dark, .dark *));
 @custom-variant light (&:not(.dark, .dark *));
 /* Window Controls Overlay: active when Electron exposes native titlebar control geometry. */

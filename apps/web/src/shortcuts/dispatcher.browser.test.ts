@@ -1,7 +1,13 @@
 import type { KeybindingCommand, ResolvedKeybindingsConfig } from "@t3tools/contracts";
 import { describe, expect, it, vi } from "vite-plus/test";
 
-import { dispatchMenuAction, registerCommands, registerMenuAction } from "./dispatcher";
+import {
+  type CommandEvent,
+  dispatchCommand,
+  dispatchMenuAction,
+  registerCommands,
+  registerMenuAction,
+} from "./dispatcher";
 
 function bindings(entries: ReadonlyArray<[string, KeybindingCommand]>): ResolvedKeybindingsConfig {
   return entries.map(([key, command]) => ({
@@ -44,6 +50,11 @@ describe("command dispatcher", () => {
     expect(inner).toHaveBeenCalledOnce();
     expect(outer).not.toHaveBeenCalled();
     expect(global).not.toHaveBeenCalled();
+
+    expect(dispatchCommand("chat.new")).toBe(true);
+    expect(inner).toHaveBeenCalledTimes(2);
+    expect(outer).not.toHaveBeenCalled();
+    expect(global).not.toHaveBeenCalled();
   });
 
   it("falls through scopes that return false, skip the command, or fail their guard", () => {
@@ -61,11 +72,16 @@ describe("command dispatcher", () => {
     expect(guarded).not.toHaveBeenCalled();
     expect(declined).toHaveBeenCalledOnce();
     expect(global).toHaveBeenCalledOnce();
+
+    expect(dispatchCommand("chat.new")).toBe(true);
+    expect(guarded).not.toHaveBeenCalled();
+    expect(declined).toHaveBeenCalledTimes(2);
+    expect(global).toHaveBeenCalledTimes(2);
   });
 
   it("stops once a handler prevents default, and unregisters on cleanup", () => {
     const lower = vi.fn();
-    const upper = vi.fn((event: KeyboardEvent) => {
+    const upper = vi.fn((event: CommandEvent) => {
       event.preventDefault();
       return false;
     });
@@ -128,6 +144,8 @@ describe("command dispatcher", () => {
 
     expect(command).not.toHaveBeenCalled();
     expect(event.defaultPrevented).toBe(true);
+    expect(dispatchCommand("chat.new")).toBe(false);
+    expect(command).not.toHaveBeenCalled();
   });
 
   it("routes a menu action to its newest handler", () => {

@@ -47,7 +47,7 @@ import {
 import { remainingComposerAttachmentSlots } from "./composerThreadImport";
 import { replaceComposerContextReferences } from "@t3tools/shared/composerContextReferences";
 import { resizeSnapShotSource } from "../../lib/snapShotSource";
-import { registerCommands } from "../../shortcuts/dispatcher";
+import { type CommandEvent, registerCommands } from "../../shortcuts/dispatcher";
 import { selectThreadTerminalUiState, useTerminalUiStateStore } from "../../terminalUiStateStore";
 import { toastManager } from "../ui/toast";
 import type { useComposerTriggerState } from "./useComposerTriggerState";
@@ -671,7 +671,7 @@ export function useComposerStash(input: {
 
   // Read at event time, so the scope registers once per mounted composer instead of
   // re-registering (and reshuffling capture-scope priority) whenever a guard flips.
-  const handleStashShortcut = useStableCallback((event: KeyboardEvent) => {
+  const handleStashShortcut = useStableCallback((event: CommandEvent) => {
     // Always claim the shortcut so the browser save dialog never opens,
     // even when the composer is in a state that can't stash.
     event.preventDefault();

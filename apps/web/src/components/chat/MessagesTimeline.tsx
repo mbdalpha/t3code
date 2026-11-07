@@ -1124,6 +1124,7 @@ const ConversationTimeline = memo(function ConversationTimeline({
   const setTimelineList = useStableCallback((list: LegendListRef | null) => {
     listRef.current = list;
     const scrollNode: HTMLElement | null = list?.getScrollableNode() ?? null;
+    if (scrollNode) scrollNode.dataset.controllerScroll = "true";
     registerTimeline?.(scrollNode);
     const viewport = scrollNode ? attachTimelineViewport(scrollNode) : null;
     viewportRef.current = viewport;
@@ -1154,6 +1155,7 @@ const ConversationTimeline = memo(function ConversationTimeline({
       stopRememberingRelease?.();
       if (contentSizeFrame !== null) cancelAnimationFrame(contentSizeFrame);
       detachViewport?.();
+      if (scrollNode) delete scrollNode.dataset.controllerScroll;
       viewport?.dispose();
       if (viewportRef.current === viewport) viewportRef.current = null;
       // Refresh frames only read the list; disclosure frames still run so the
